@@ -44,9 +44,6 @@ options:
 field:
   description: field to return from bitwarden
   default: 'password'
-custom_field:
-  description: If True, look up named field in custom fields instead
-      of top-level dictionary.
 sync:
   description: If True, call `bw sync` before lookup
 """
@@ -137,64 +134,83 @@ class Bitwarden(object):
     def get_entry(self, key, field):
         return self._run(["get", field, key])
 
+    def get_item(self, key):
+        return json.loads(self.get_entry(key, 'item'))
+
     def get_notes(self, key):
-        data = json.loads(self.get_entry(key, 'item'))
-        return data['notes']
+        return self.get_item(key).get('notes')
 
     def get_custom_field(self, key, field):
-        data = json.loads(self.get_entry(key, 'item'))
-        return next(x for x in data['fields'] if x['name'] == field)['value']
+        rval = self.get_entry(key, 'item')
+        data = json.loads(rval)
+        if 'fields' not in data:
+            return None
+        matching = [x for x in data['fields'] if x['name'] == field]
+        if len(matching) == 0:
+            return None
+        return matching[0]['value']
 
-    def get_attachments(self, key, itemid, output):
-        attachment = ['get', 'attachment', '{}'.format(
-            key), '--output={}'.format(output), '--itemid={}'.format(itemid)]
-        return self._run(attachment)
+    def get_itemid(self, key):
+        return self.get_item(key).get('id')
+
+    def get_attachments(self, key, itemid):
+        return self._run(['get', 'attachment', key, '--itemid={}'.format(itemid), '--raw'])
 
 
 class LookupModule(LookupBase):
 
     def run(self, terms, variables=None, **kwargs):
-        bw = Bitwarden(path=kwargs.get('path', 'bw'))
+        self.bw = Bitwarden(path=kwargs.get('path', 'bw'))
 
-        if not bw.logged_in:
+        if not self.bw.logged_in:
             raise AnsibleError("Not logged into Bitwarden: please run "
                                "'bw login', or 'bw unlock' and set the "
                                "BW_SESSION environment variable first")
 
-        field = kwargs.get('field', 'password')
         values = []
 
         if kwargs.get('sync'):
-            bw.sync()
+            self.bw.sync()
         if kwargs.get('session'):
-            bw.session = kwargs.get('session')
+            self.bw.session = kwargs.get('session')
 
         for term in terms:
-            if kwargs.get('custom_field'):
-                values.append(bw.get_custom_field(term, field))
-            elif field == 'notes':
-                values.append(bw.get_notes(term))
-            elif kwargs.get('attachments'):
-                if kwargs.get('itemid'):
-                    itemid = kwargs.get('itemid')
-                    output = kwargs.get('output', term)
-                    values.append(bw.get_attachments(term, itemid, output))
-                else:
-                    raise AnsibleError("Missing value for - itemid - "
-                                       "Please set parameters as example: - "
-                                       "itemid='f12345-d343-4bd0-abbf-4532222' ")
-            else:
-                values.append(bw.get_entry(term, field))
+            rval = self.lookup(term, kwargs)
+            if rval is None:
+                raise AnsibleError("No matching term, field or attachment found!")
+            values.append(rval)
+
         return values
 
+    def lookup(self, term, kwargs):
+        if 'file' in kwargs:
+            # Try attachments first
+            itemid = self.bw.get_itemid(term)
+            if itemid is None:
+                raise AnsibleError("No such object, wrong name")
+            return self.bw.get_attachments(kwargs['file'], itemid)
+
+        # By default check password
+        field = kwargs.get('field', 'password')
+
+        # Special field which contains notes.
+        if field == 'notes':
+            return self.bw.get_notes(term)
+
+        # Try custom fields second
+        val = self.bw.get_custom_field(term, field)
+        if val:
+            return val
+
+        # If not found check default bw entries
+        return self.bw.get_entry(term, field)
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: {0} <field> <name> [name name ...]"
-              .format(os.path.basename(__file__)))
+        print("Usage: %s <field> <name> [name name ...]" % os.path.basename(__file__))
         return -1
 
-    print(LookupModule().run(sys.argv[2:], None, field=sys.argv[1]))
+    print(LookupModule().run(sys.argv[2:], variables=None, field=sys.argv[1]))
 
     return 0
 
