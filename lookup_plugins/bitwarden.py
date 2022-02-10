@@ -14,6 +14,7 @@ import json
 import os
 import sys
 
+from shutil import which
 from subprocess import Popen, PIPE, STDOUT, check_output
 
 from ansible.errors import AnsibleError
@@ -65,9 +66,7 @@ class Bitwarden(object):
     def __init__(self, path):
         self._cli_path = path
         self._bw_session = ""
-        try:
-            check_output([self._cli_path, "--version"])
-        except OSError:
+        if which("bw") is None:
             raise AnsibleError("Command not found: {0}".format(self._cli_path))
 
     @property
