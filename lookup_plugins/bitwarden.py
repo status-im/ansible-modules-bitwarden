@@ -7,6 +7,9 @@
 # This plugin can be run directly by specifying the field followed by a list of
 # entries, e.g.  bitwarden.py password google.com wufoo.com
 #
+# This version includes fixes that can be found in this fork:
+# https://github.com/status-im/ansible-modules-bitwarden
+#
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
