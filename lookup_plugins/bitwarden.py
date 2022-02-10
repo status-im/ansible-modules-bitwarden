@@ -114,12 +114,14 @@ class Bitwarden(object):
             elif out.startswith("Failed to decrypt."):
                 raise AnsibleError("Error accessing Bitwarden vault. "
                                    "Make sure BW_SESSION is set properly.")
+            elif out.startswith("More than one result was found."):
+                raise AnsibleError("More than one object found with this name.")
             elif out.startswith("Not found."):
                 raise AnsibleError("Error accessing Bitwarden vault. "
                                    "Specified item not found: {}".format(args[-1]))
             else:
-                raise AnsibleError("Unknown failure in 'bw' command: "
-                                   "{0}".format(out))
+                print("Unknown failure in 'bw' command: \n%s" % out)
+                return None
         return out.strip()
 
     def sync(self):
